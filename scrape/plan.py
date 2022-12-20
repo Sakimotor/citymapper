@@ -1,16 +1,18 @@
-import sys, os, psycopg2
+import os
+import psycopg2
+import sys
 from os.path import expanduser
+
 # import folium, io, json, sys
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsPixmapItem, QGraphicsScene, QMainWindow, QApplication, QTableWidget, \
-    QTableWidgetItem, QComboBox, QPushButton, QLabel, QSplitter, QHBoxLayout, QVBoxLayout, QWidget, QCompleter
 from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QMainWindow, QApplication, QComboBox, QPushButton, QLabel, QHBoxLayout, QVBoxLayout, \
+    QWidget, QCompleter
 from sqlalchemy import create_engine
 
+sys.path.append('../modules')
 
-sys.path.append('../parse')
-
-import parse
+import params
 import route_type
 
 # See params.py
