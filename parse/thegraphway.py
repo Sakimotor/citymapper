@@ -1,39 +1,44 @@
-import sys, folium, io, json, psycopg2, datetime, time
-import pandas as pd
-import networkx as nx
+import datetime
+import io
+import json
+import sys
+import time
 from os.path import expanduser
-from jinja2 import Template
-from branca.element import Element
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
+
+import folium
+import networkx as nx
+import pandas as pd
+import psycopg2
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMainWindow,QApplication,QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QLabel, QSplitter, QHBoxLayout, QVBoxLayout, QWidget,QCompleter
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
+from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QLabel, \
+    QSplitter, QHBoxLayout, QVBoxLayout, QWidget, QCompleter
+from branca.element import Element
+from jinja2 import Template
 from sqlalchemy import create_engine
 
-sys.path.append(expanduser('~')+'/PycharmProjects/pythonProject2/data/')
-dp = expanduser('~')+'/PycharmProjects/pythonProject2/data/'
-user = 'postgres'
-dbname = 'dbproject'
-password = 'jalanji'
+
+sys.path.append('../modules')
+import params
+import route_type
+
+# See params.py
+data_path, user, password, database, host = params.get_variables()
+
+sys.path.append(data_path)
+dp = expanduser(data_path)
 
 number_of_click = 0
 
-def str_route_type(route_type):
-    route_type=int(route_type)
-    if route_type == 0:
-        route='TRAM'
-    elif route_type ==1:
-        route='METRO'
-    elif route_type == 2:
-        route='RER'
-    elif route_type == 3:
-        route='BUS'
-    else:
-        route='ERROR'
-    return route
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.cursor = None
+        self.engine = create_engine(
+            'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
+
+        self.conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
         self.resize(600, 600)
         main = QWidget()
         self.setCentralWidget(main)
@@ -51,7 +56,7 @@ class MainWindow(QMainWindow):
         main.layout().addLayout(controls_panel)
         main.layout().addWidget(mysplit)
         _label = QLabel('From: ', self)
-        _label.setFixedSize(30,20)
+        _label.setFixedSize(30, 20)
         self.from_box = QComboBox()
         self.from_box.setEditable(True)
         self.from_box.completer().setCompletionMode(QCompleter.PopupCompletion)
@@ -60,8 +65,8 @@ class MainWindow(QMainWindow):
         controls_panel.addWidget(self.from_box)
 
         _label = QLabel('  To: ', self)
-        _label.setFixedSize(20,20)
-        self.to_box = QComboBox() 
+        _label.setFixedSize(20, 20)
+        self.to_box = QComboBox()
         self.to_box.setEditable(True)
         self.to_box.completer().setCompletionMode(QCompleter.PopupCompletion)
         self.to_box.setInsertPolicy(QComboBox.NoInsert)
@@ -71,7 +76,7 @@ class MainWindow(QMainWindow):
         self.go_button = QPushButton("Go!")
         self.go_button.clicked.connect(self.button_Go)
         controls_panel.addWidget(self.go_button)
-           
+
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self.button_Clear)
         controls_panel.addWidget(self.clear_button)
@@ -80,51 +85,49 @@ class MainWindow(QMainWindow):
         self.maptype_box.addItems(self.webView.maptypes)
         self.maptype_box.currentIndexChanged.connect(self.webView.setMap)
         controls_panel.addWidget(self.maptype_box)
-           
+
         self.connect_DB()
         self.show()
 
     def connect_DB(self):
 
-        self.conn = psycopg2.connect(database="dbproject", user="postgres", host="localhost", password="jalanji")
-        self.cursor = self.conn.cursor()
         print("database project connected to server")
-        self.engine = create_engine('postgresql+psycopg2://postgres:jalanji@localhost/dbproject')
+        self.cursor = self.conn.cursor()
         self.cursor.execute("""SELECT distinct name FROM nodes ORDER BY name""")
         self.conn.commit()
         rows = self.cursor.fetchall()
 
-        for row in rows : 
+        for row in rows:
             self.from_box.addItem(str(row[0]))
             self.to_box.addItem(str(row[0]))
 
     def path_processing(self, G, path):
-        shortest_names = pd.concat([self.nodes.loc[self.nodes['stop_i']==i] for i in path]).reset_index()
+        shortest_names = pd.concat([self.nodes.loc[self.nodes['stop_i'] == i] for i in path]).reset_index()
         duration = nx.classes.function.path_weight(G, path, weight="duration_avg")
-        print(f"The time without taking into account the waiting time is {duration//60} minutes")
+        print(f"The time without taking into account the waiting time is {duration // 60} minutes")
         pathGraph = nx.path_graph(path)
-        edges = [[ea,G.edges[ea[0],ea[1]]] for ea in pathGraph.edges()]
+        edges = [[ea, G.edges[ea[0], ea[1]]] for ea in pathGraph.edges()]
 
         routes_taken = []
         for i in edges:
             try:
-                routes_taken.append(self.routes.loc[self.routes['route_i']==int(float(i[1]['route_i']))])
-            except Exception as e:
+                routes_taken.append(self.routes.loc[self.routes['route_i'] == int(float(i[1]['route_i']))])
+            except Exception:
                 # print(e)
-                routes_taken.append(pd.DataFrame([['w','w','w']],columns=['route_type','route_name','route_i']))
-        
-        routes_taken = pd.concat(routes_taken,ignore_index=True)
-        which_routes_taken = routes_taken[['route_type','route_name']].drop_duplicates()
+                routes_taken.append(pd.DataFrame([['w', 'w', 'w']], columns=['route_type', 'route_name', 'route_i']))
+
+        routes_taken = pd.concat(routes_taken, ignore_index=True)
+        which_routes_taken = routes_taken[['route_type', 'route_name']].drop_duplicates()
         which_routes_taken = which_routes_taken[which_routes_taken.route_type != 'w']
         # adding waiting time each time you have to take a new route
 
         today = datetime.datetime.utcnow()
         curr_unix_time = time.mktime(today.utctimetuple())
         starting_time = datetime.datetime.utcfromtimestamp(curr_unix_time).strftime('%Y-%m-%d %H:%M:%S')[-8:].split(':')
-        starting_time = int(starting_time[0])*3600 + int(starting_time[1])*60 + int(starting_time[2])
-        
+        starting_time = int(starting_time[0]) * 3600 + int(starting_time[1]) * 60 + int(starting_time[2])
+
         current_time = starting_time
-        for i,j in enumerate(which_routes_taken.index):
+        for i, j in enumerate(which_routes_taken.index):
             self.rows = []
             query = f"""
                 SELECT dep_time_ut
@@ -138,10 +141,10 @@ class MainWindow(QMainWindow):
             self.cursor.execute(query)
             self.conn.commit()
             self.rows += self.cursor.fetchall()
-            
+
             # no rows can be selected, leading to self.rows being empty if you've missed the last train for the day, so you need to look for tomorrow's one
             if not self.rows:
-                query=f"""
+                query = f"""
                     SELECT dep_time_ut + 24*3600
                     FROM temporal_day
                     WHERE {edges[j][0][0]} = from_stop_i
@@ -156,48 +159,48 @@ class MainWindow(QMainWindow):
                 current_time = float(self.rows[0][0])
                 k = j
                 if j != which_routes_taken.index[-1]:
-                    while k < which_routes_taken.index[i+1]:
-                        current_time += float(edges[k][1]['duration_avg'])
-                        current_time += 30 # to account for time spent in each station
+                    while k < which_routes_taken.index[i + 1]:
+                        current_time += float(edges[k][1].get("duration_avg"))
+                        current_time += 30  # to account for time spent in each station
                         k += 1
                 else:
                     while k <= routes_taken.index[-1]:
-                        current_time += float(edges[k][1]['duration_avg'])
-                        current_time += 30 # to account for time spent in each station
+                        current_time += float(edges[k][1].get("duration_avg"))
+                        current_time += 30  # to account for time spent in each station
                         k += 1
-            except:
+            except Exception:
                 pass
-            
+
         total_time = current_time - starting_time
-        print(f"The time taking into account the wait is {int(total_time//3600)}h {int(total_time%3600//60)}m {int(total_time%3600%60)}s")
+        print(
+            f"The time taking into account the wait is {int(total_time // 3600)}h {int(total_time % 3600 // 60)}m {int(total_time % 3600 % 60)}s")
         return shortest_names, which_routes_taken, total_time
 
     def button_Go(self):
         if not hasattr(self, 'to_stop_i'):
-            self.to_stop_i = str(self.to_box.currentText()).replace("'","''")
+            self.to_stop_i = str(self.to_box.currentText()).replace("'", "''")
             self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.to_stop_i}'""")
             self.conn.commit()
             myrows = self.cursor.fetchall()
             self.to_stop_i = int(myrows[0][0])
             if not hasattr(self, 'from_stop_i'):
-                self.from_stop_i = str(self.from_box.currentText()).replace("'","''")
+                self.from_stop_i = str(self.from_box.currentText()).replace("'", "''")
                 self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.from_stop_i}'""")
                 self.conn.commit()
                 myrows = self.cursor.fetchall()
                 self.from_stop_i = int(myrows[0][0])
-        
-        
+
         self.tableWidget.clearContents()
         self.rows = []
-        
-        self.nodes = pd.read_sql("SELECT * FROM \"{}\";".format("nodes"), self.engine)  
-        self.routes = pd.read_sql("SELECT * FROM \"{}\";".format("routes"), self.engine)        
+
+        self.nodes = pd.read_sql("SELECT * FROM \"{}\";".format("nodes"), self.engine)
+        self.routes = pd.read_sql("SELECT * FROM \"{}\";".format("routes"), self.engine)
         super_route_comb = pd.read_sql("SELECT * FROM \"{}\";".format("super_route_comb"), self.engine)
         super_route_comb = super_route_comb.rename(columns={'route_rps_i': 'route_i'})
         short_walk = pd.read_sql("SELECT * FROM \"{}\";".format("short_walk"), self.engine)
         short_walk = short_walk.rename(columns={'d_walk': 'duration_avg'})
-        
-        super_short_comb_walk = pd.concat([short_walk,super_route_comb])
+
+        super_short_comb_walk = pd.concat([short_walk, super_route_comb])
         G = nx.from_pandas_edgelist(super_short_comb_walk, source="from_stop_i", target="to_stop_i", edge_attr=True)
         self.shortest = nx.shortest_path(G, source=self.from_stop_i, target=self.to_stop_i, weight="duration_avg")
         self.shortest = [int(i) for i in self.shortest]
@@ -205,45 +208,48 @@ class MainWindow(QMainWindow):
         numrows = 2
         numcols = len(self.shortest_routes.index)
         self.tableWidget.setRowCount(numrows)
-        self.tableWidget.setColumnCount(2*numcols+1)
-        self.add_path_to_table(self.shortest_names,self.shortest_routes,0)
+        self.tableWidget.setColumnCount(2 * numcols + 1)
+        self.add_path_to_table(self.shortest_names, self.shortest_routes, 0)
         self.tableWidget.resizeColumnsToContents()
-        
-        shortest = self.shortest           
-        HEX = ['#52766c','blue', 'pink','black','purple','#52766c','#52766c','blue', 'pink','black','purple']
+
+        shortest = self.shortest
+        HEX = ['#52766c', 'blue', 'pink', 'black', 'purple', '#52766c', '#52766c', 'blue', 'pink', 'black', 'purple']
         nth_route = 0
         self.colors = []
         for sss, i in enumerate(shortest):
             if i != 'w':
-                if sss <= self.shortest_routes.index[-1] and sss == self.shortest_routes.index[nth_route+1]:
+                if sss <= self.shortest_routes.index[-1] and sss == self.shortest_routes.index[nth_route + 1]:
                     nth_route += 1
-                lat=self.nodes.loc[self.nodes['stop_i']==i]['lat'].item()
-                lng=self.nodes.loc[self.nodes['stop_i']==i]['lon'].item()
+                lat = self.nodes.loc[self.nodes['stop_i'] == i]['lat'].item()
+                lng = self.nodes.loc[self.nodes['stop_i'] == i]['lon'].item()
                 self.colors.append(HEX[nth_route])
-                self.webView.addPoint(lat,lng,HEX[nth_route])
+                self.webView.addPoint(lat, lng, HEX[nth_route])
             else:
                 self.colors.append('w')
 
-    def add_path_to_table(self, shortest_names, which_routes_taken,row_num):
-        numcols=self.tableWidget.columnCount()
-        jj=0
-        for sss,route in which_routes_taken.iterrows():
-            self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[sss-1]['name']))   
-            self.tableWidget.setItem(row_num, jj+1, QTableWidgetItem(str_route_type(route['route_type'])+' '+route['route_name']))   
+    def add_path_to_table(self, shortest_names, which_routes_taken, row_num):
+        numcols = self.tableWidget.columnCount()
+        jj = 0
+        for sss, route in which_routes_taken.iterrows():
+            self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[sss - 1]['name']))
+            self.tableWidget.setItem(row_num, jj + 1,
+                                     QTableWidgetItem(
+                                         route_type.str_route_type(route['route_type']) + ' ' + route['route_name']))
             jj += 2
         self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[-1]['name']))
         total_time = self.shortest_time
-        self.tableWidget.setSpan(row_num+1, 1, 1, 2*numcols) 
-        newItem = QTableWidgetItem(f"""{int(total_time//3600)}h {int(total_time%3600//60)}m {int(total_time%3600%60)}s""")  
-        self.tableWidget.setItem(row_num+1, 1, newItem)
+        self.tableWidget.setSpan(row_num + 1, 1, 1, 2 * numcols)
+        newItem = QTableWidgetItem(
+            f"""{int(total_time // 3600)}h {int(total_time % 3600 // 60)}m {int(total_time % 3600 % 60)}s""")
+        self.tableWidget.setItem(row_num + 1, 1, newItem)
         newItem = QTableWidgetItem('Total time With Waiting')
-        self.tableWidget.setItem(row_num+1, 0, newItem)
+        self.tableWidget.setItem(row_num + 1, 0, newItem)
 
     def button_Clear(self):
         self.webView.clearMap(self.maptype_box.currentIndex())
         self.update()
         global number_of_click
-        number_of_click=0
+        number_of_click = 0
 
     def mouseClick(self, lat, lng):
         global number_of_click
@@ -264,40 +270,42 @@ class MainWindow(QMainWindow):
             self.to_stop_i = int(myrows[0][1])
 
         number_of_click += 1
-    
+
     def table_Click(self):
         """for a weird reason, if there are multiple polylines on a map,
         folium will choose one of their colour and colour every polyline with this colour,
         but when you zoom in, you get the expected color"""
-        for sss in range(len(self.colors)-1):
-            if self.colors[sss] == self.colors[sss+1]:
+        for sss in range(len(self.colors) - 1):
+            if self.colors[sss] == self.colors[sss + 1]:
                 self.cursor.execute(f"""select lat, lon from nodes where stop_i = {self.shortest[sss]}""")
                 self.conn.commit()
-                lat1,lng1 = self.cursor.fetchall()[0]
-                self.cursor.execute(f"""select lat, lon from nodes where stop_i = {self.shortest[sss+1]}""")
+                lat1, lng1 = self.cursor.fetchall()[0]
+                self.cursor.execute(f"""select lat, lon from nodes where stop_i = {self.shortest[sss + 1]}""")
                 self.conn.commit()
-                lat2,lng2 = self.cursor.fetchall()[0]
-                self.webView.addSegment(lat1,lng1,lat2,lng2,self.colors[sss])
+                lat2, lng2 = self.cursor.fetchall()[0]
+                self.webView.addSegment(lat1, lng1, lat2, lng2, self.colors[sss])
 
-class myWebView (QWebEngineView):
+
+def add_customjs(map_object):
+    my_js = f"""{map_object.get_name()}.on("click",
+             function (e) {{
+                var data = `{{"coordinates": ${{JSON.stringify(e.latlng)}}}}`;
+                console.log(data)}}); """
+    e = Element(my_js)
+    html = map_object.get_root()
+    html.script.get_root().render()
+    html.script._children[e.get_name()] = e
+
+    return map_object
+
+
+class myWebView(QWebEngineView):
     def __init__(self):
         super().__init__()
 
-        self.maptypes = ["Stamen Terrain", "Esri Satellite", "OpenStreetMap","stamentoner", "cartodbpositron"]
+        self.mymap = None
+        self.maptypes = ["Stamen Terrain", "Esri Satellite", "OpenStreetMap", "stamentoner", "cartodbpositron"]
         self.setMap(0)
-
-
-    def add_customjs(self, map_object):
-        my_js = f"""{map_object.get_name()}.on("click",
-                 function (e) {{
-                    var data = `{{"coordinates": ${{JSON.stringify(e.latlng)}}}}`;
-                    console.log(data)}}); """
-        e = Element(my_js)
-        html = map_object.get_root()
-        html.script.get_root().render()
-        html.script._children[e.get_name()] = e
-
-        return map_object
 
     def handleClick(self, msg):
         data = json.loads(msg)
@@ -306,9 +314,9 @@ class myWebView (QWebEngineView):
 
         window.mouseClick(lat, lng)
 
-    def addSegment(self, lat1, lng1, lat2, lng2,color):
+    def addSegment(self, lat1, lng1, lat2, lng2, color):
         js = Template(
-        """
+            """
         L.polyline(
             [ [{{latitude1}}, {{longitude1}}], [{{latitude2}}, {{longitude2}}] ], {
                 "color": '{{color}}',
@@ -318,13 +326,13 @@ class myWebView (QWebEngineView):
             }
         ).addTo({{map}});
         """
-        ).render(map=self.mymap.get_name(), latitude1=lat1, longitude1=lng1, latitude2=lat2, longitude2=lng2 )
+        ).render(map=self.mymap.get_name(), latitude1=lat1, longitude1=lng1, latitude2=lat2, longitude2=lng2)
 
         self.page().runJavaScript(js)
 
     def addPoint(self, lat, lng, color):
         js = Template(
-        """
+            """
         L.circleMarker(
             [{{latitude}}, {{longitude}}], {
                 "bubblingMouseEvents": true,
@@ -345,15 +353,18 @@ class myWebView (QWebEngineView):
             }
         ).addTo({{map}});
         """
-        ).render(map=self.mymap.get_name(), latitude=lat, longitude=lng,color=color)
+        ).render(map=self.mymap.get_name(), latitude=lat, longitude=lng, color=color)
         self.page().runJavaScript(js)
 
-    def setMap (self, i):
+    def setMap(self, i):
         if i != 1:
-            self.mymap = folium.Map(location=[48.8619, 2.3519], tiles=self.maptypes[i], zoom_start=12, prefer_canvas=True)
+            self.mymap = folium.Map(location=[48.8619, 2.3519], tiles=self.maptypes[i], zoom_start=12,
+                                    prefer_canvas=True)
         else:
-            self.mymap = folium.Map(location=[48.8619, 2.3519], tiles = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr='Esri', zoom_start=12, prefer_canvas=True)
-        self.mymap = self.add_customjs(self.mymap)
+            self.mymap = folium.Map(location=[48.8619, 2.3519],
+                                    tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                                    attr='Esri', zoom_start=12, prefer_canvas=True)
+        self.mymap = add_customjs(self.mymap)
 
         page = WebEnginePage(self)
         self.setPage(page)
@@ -366,6 +377,7 @@ class myWebView (QWebEngineView):
     def clearMap(self, index):
         self.setMap(index)
 
+
 class WebEnginePage(QWebEnginePage):
     def __init__(self, parent):
         super().__init__(parent)
@@ -375,8 +387,9 @@ class WebEnginePage(QWebEnginePage):
         if 'coordinates' in msg:
             self.parent.handleClick(msg)
 
+
 if __name__ == '__main__':
-    app = QApplication(sys.argv) 
+    app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

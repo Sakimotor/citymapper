@@ -4,13 +4,23 @@ from io import StringIO
 from sqlalchemy import create_engine
 from schema import sql_schema
 from os.path import expanduser
-sys.path.append(expanduser('~')+'/PycharmProjects/pythonProject2/data/')
-dp = expanduser('~')+'/PycharmProjects/pythonProject2/data/'
 
-conn = psycopg2.connect(database="dbproject", user="postgres", host="localhost", password="jalanji")
+sys.path.append('../modules')
+import params
+import route_type
+
+
+# See params.py
+data_path, user, password, database, host = params.get_variables()
+
+print("variables:" + str(data_path) + " " + str(user) + " " + str(password) + " " + str(database) + " " + str(host))
+
+sys.path.append(data_path)
+dp = expanduser(data_path)
+conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
 cursor = conn.cursor()
 print("database projet connected to the remote server")
-engine = create_engine('postgresql+psycopg2://postgres:jalanji@localhost/dbproject')
+engine = create_engine('postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
 
 # copy dataFrame into a table defined in the schema
 def copy_from_stringio(conn, df, table):
