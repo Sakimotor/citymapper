@@ -16,8 +16,9 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidge
 from branca.element import Element
 from jinja2 import Template
 from sqlalchemy import create_engine
+import os
 
-
+os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
 import route_type
@@ -35,10 +36,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.cursor = None
+        # Initiating connection with the PostgreSQL database
         self.engine = create_engine(
             'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
-
         self.conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
+
+        # Setting up the window layout
         self.resize(600, 600)
         main = QWidget()
         self.setCentralWidget(main)
@@ -55,6 +58,7 @@ class MainWindow(QMainWindow):
         mysplit.addWidget(self.webView)
         main.layout().addLayout(controls_panel)
         main.layout().addWidget(mysplit)
+
         _label = QLabel('From: ', self)
         _label.setFixedSize(30, 20)
         self.from_box = QComboBox()
@@ -104,16 +108,18 @@ class MainWindow(QMainWindow):
     def path_processing(self, G, path):
         shortest_names = pd.concat([self.nodes.loc[self.nodes['stop_i'] == i] for i in path]).reset_index()
         duration = nx.classes.function.path_weight(G, path, weight="duration_avg")
-        print(f"The time without taking into account the waiting time is {duration // 60} minutes")
+        print(f"The time without taking into account the waiting time is {duration / 60} minutes")
         pathGraph = nx.path_graph(path)
         edges = [[ea, G.edges[ea[0], ea[1]]] for ea in pathGraph.edges()]
+        # Case where the user decided to try out a path where they stay on the same stop
+        for node in list(pathGraph.nodes):
+            edges.append(node)
 
         routes_taken = []
         for i in edges:
             try:
                 routes_taken.append(self.routes.loc[self.routes['route_i'] == int(float(i[1]['route_i']))])
             except Exception:
-                # print(e)
                 routes_taken.append(pd.DataFrame([['w', 'w', 'w']], columns=['route_type', 'route_name', 'route_i']))
 
         routes_taken = pd.concat(routes_taken, ignore_index=True)
@@ -177,18 +183,18 @@ class MainWindow(QMainWindow):
         return shortest_names, which_routes_taken, total_time
 
     def button_Go(self):
-        if not hasattr(self, 'to_stop_i'):
-            self.to_stop_i = str(self.to_box.currentText()).replace("'", "''")
-            self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.to_stop_i}'""")
-            self.conn.commit()
-            myrows = self.cursor.fetchall()
-            self.to_stop_i = int(myrows[0][0])
-            if not hasattr(self, 'from_stop_i'):
-                self.from_stop_i = str(self.from_box.currentText()).replace("'", "''")
-                self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.from_stop_i}'""")
-                self.conn.commit()
-                myrows = self.cursor.fetchall()
-                self.from_stop_i = int(myrows[0][0])
+        self.to_stop_i = str(self.to_box.currentText()).replace("'", "''")
+        self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.to_stop_i}'""")
+        self.conn.commit()
+        myrows = self.cursor.fetchall()
+        print(f"nodes pour {self.to_stop_i}: {myrows}")
+        self.to_stop_i = int(myrows[0][0])
+        self.from_stop_i = str(self.from_box.currentText()).replace("'", "''")
+        self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.from_stop_i}'""")
+        self.conn.commit()
+        myrows = self.cursor.fetchall()
+        print(f"nodes pour {self.from_stop_i}: {myrows}")
+        self.from_stop_i = int(myrows[0][0])
 
         self.tableWidget.clearContents()
         self.rows = []
@@ -204,6 +210,7 @@ class MainWindow(QMainWindow):
         G = nx.from_pandas_edgelist(super_short_comb_walk, source="from_stop_i", target="to_stop_i", edge_attr=True)
         self.shortest = nx.shortest_path(G, source=self.from_stop_i, target=self.to_stop_i, weight="duration_avg")
         self.shortest = [int(i) for i in self.shortest]
+        print(f"calculating path from {self.from_stop_i} to {self.to_stop_i}")
         self.shortest_names, self.shortest_routes, self.shortest_time = self.path_processing(G, self.shortest)
         numrows = 2
         numcols = len(self.shortest_routes.index)
@@ -218,8 +225,11 @@ class MainWindow(QMainWindow):
         self.colors = []
         for sss, i in enumerate(shortest):
             if i != 'w':
-                if sss <= self.shortest_routes.index[-1] and sss == self.shortest_routes.index[nth_route + 1]:
-                    nth_route += 1
+                # Vérifie que l'index nth_route est dans les limites du tableau
+                if nth_route < len(self.shortest_routes) - 1:
+                    if sss <= self.shortest_routes.index[-1] and sss == self.shortest_routes.index[nth_route + 1]:
+                        nth_route += 1
+
                 lat = self.nodes.loc[self.nodes['stop_i'] == i]['lat'].item()
                 lng = self.nodes.loc[self.nodes['stop_i'] == i]['lon'].item()
                 self.colors.append(HEX[nth_route])
@@ -231,7 +241,7 @@ class MainWindow(QMainWindow):
         numcols = self.tableWidget.columnCount()
         jj = 0
         for sss, route in which_routes_taken.iterrows():
-            self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[sss - 1]['name']))
+            self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[sss]['name']))
             self.tableWidget.setItem(row_num, jj + 1,
                                      QTableWidgetItem(
                                          route_type.str_route_type(route['route_type']) + ' ' + route['route_name']))
@@ -284,6 +294,9 @@ class MainWindow(QMainWindow):
                 self.conn.commit()
                 lat2, lng2 = self.cursor.fetchall()[0]
                 self.webView.addSegment(lat1, lng1, lat2, lng2, self.colors[sss])
+
+
+
 
 
 def add_customjs(map_object):

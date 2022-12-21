@@ -7,7 +7,9 @@ from os.path import expanduser
 import psycopg2
 import requests
 from bs4 import BeautifulSoup
+import os
 
+os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
 import route_type

@@ -1,14 +1,14 @@
 import pandas as pd
-import psycopg2, datetime, sys, geojson
+import psycopg2, datetime, sys, geojson, os
 from io import StringIO
 from sqlalchemy import create_engine
 from schema import sql_schema
 from os.path import expanduser
 
+os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
 import route_type
-
 
 # See params.py
 data_path, user, password, database, host = params.get_variables()
@@ -20,7 +20,9 @@ dp = expanduser(data_path)
 conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
 cursor = conn.cursor()
 print("database projet connected to the remote server")
-engine = create_engine('postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
+engine = create_engine(
+    'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
+
 
 # copy dataFrame into a table defined in the schema
 def copy_from_stringio(conn, df, table):
@@ -30,7 +32,7 @@ def copy_from_stringio(conn, df, table):
     """
     # save dataframe to an in memory buffer
     buffer = StringIO()
-    df.to_csv(buffer, index_label='id', header=False, index=False,sep=';')
+    df.to_csv(buffer, index_label='id', header=False, index=False, sep=';')
     buffer.seek(0)
 
     cursor = conn.cursor()
@@ -49,19 +51,22 @@ def copy_from_stringio(conn, df, table):
         return 1
     cursor.close()
 
+
 def create_nodes():
-    nodes = pd.read_csv(dp+'network_'+'nodes.csv', delimiter = ';')
-    nodes.columns= nodes.columns.str.lower()
+    nodes = pd.read_csv(dp + 'network_' + 'nodes.csv', delimiter=';')
+    nodes.columns = nodes.columns.str.lower()
     nodes['name'] = nodes['name'].str.lower()
     copy_from_stringio(conn, nodes, 'nodes')
 
+
 def create_temporal_day():
-    temporal_day = pd.read_csv(dp+'network_temporal_day.csv', delimiter = ';')
+    temporal_day = pd.read_csv(dp + 'network_temporal_day.csv', delimiter=';')
     temporal_day.columns = temporal_day.columns.str.lower()
+
     def secs(time_ut):
         """return number of seconds since midnigh, so we can later compare dep_time_ut with our current unix time"""
         relative_time = datetime.datetime.utcfromtimestamp(time_ut).strftime('%Y-%m-%d %H:%M:%S')[-8:].split(':')
-        return int(relative_time[0])*3600 + int(relative_time[1])*60 + int(relative_time[2])
+        return int(relative_time[0]) * 3600 + int(relative_time[1]) * 60 + int(relative_time[2])
 
     dep = temporal_day['dep_time_ut']
     dep = dep.apply(secs)
@@ -72,20 +77,27 @@ def create_temporal_day():
 
     copy_from_stringio(conn, temporal_day, 'temporal_day')
 
+
 def create_routes():
-    with open(dp+'routes.geojson') as f:
+    with open(dp + 'routes.geojson') as f:
         gj = geojson.load(f)['features']
 
-    data = [[line['properties']['route_type'],line['properties']['route_name'],line['properties']['route_I']] for line in gj]
+    data = [[line['properties']['route_type'], line['properties']['route_name'], line['properties']['route_I']] for line
+            in gj]
     routes = pd.DataFrame(data, columns=['route_type', 'route_name', 'route_I'])
-    routes.columns= routes.columns.str.lower()
+    routes.columns = routes.columns.str.lower()
     copy_from_stringio(conn, routes, 'routes')
 
     cursor.execute("""
-    select route_type, route_name, min(route_i) as route_rps_i into route_rps
-    from routes
-    group by route_type, route_name
-    """)
+       SELECT route_type, route_name, min(route_i) AS route_rps_i
+INTO route_rps
+FROM routes
+GROUP BY route_type, route_name;
+ALTER TABLE route_rps
+ADD PRIMARY KEY (route_rps_i),
+ADD FOREIGN KEY (route_rps_i) REFERENCES routes (route_i);
+
+        """)
     conn.commit()
 
     cursor.execute("""
@@ -95,14 +107,15 @@ def create_routes():
     """)
     conn.commit()
 
+
 def create_combined():
-    comb = pd.read_csv(dp+'network_combined.csv', delimiter=';')
-    comb.columns= comb.columns.str.lower()
+    comb = pd.read_csv(dp + 'network_combined.csv', delimiter=';')
+    comb.columns = comb.columns.str.lower()
     comb_split_routes = comb['route_i_counts'].str.split(',|:')
     comb_split_routes = pd.DataFrame(comb_split_routes)
-    comb = pd.concat([comb[['from_stop_i','to_stop_i','duration_avg']],comb_split_routes],axis=1)
-    comb=comb.explode('route_i_counts')
-    comb=comb.iloc[::2]
+    comb = pd.concat([comb[['from_stop_i', 'to_stop_i', 'duration_avg']], comb_split_routes], axis=1)
+    comb = comb.explode('route_i_counts')
+    comb = comb.iloc[::2]
 
     copy_from_stringio(conn, comb, 'combined')
 
@@ -110,6 +123,7 @@ def create_combined():
     from combined
     INNER JOIN routexsuper ON combined.route_i = routexsuper.route_i""")
     conn.commit()
+
 
 def create_stoproutename():
     cursor.execute("""
@@ -128,22 +142,24 @@ def create_stoproutename():
     order by A.stop_I""")
     conn.commit()
 
+
 # walk + combxwalk + short_walk
 
 def create_walk():
-    walk = pd.read_csv(dp+'network_walk.csv', delimiter=';')
-    walk.columns= walk.columns.str.lower()
-    walk['d_walk'] /= 2.5         ### we assumed a person walks at 2.5 m.s-1
-    walk = walk[["from_stop_i","to_stop_i","d_walk"]].rename(columns={'d_walk': 'duration_avg'})
+    walk = pd.read_csv(dp + 'network_walk.csv', delimiter=';')
+    walk.columns = walk.columns.str.lower()
+    walk['d_walk'] /= 2.5  ### we assumed a person walks at 2.5 m.s-1
+    walk = walk[["from_stop_i", "to_stop_i", "d_walk"]].rename(columns={'d_walk': 'duration_avg'})
     walk['route_i'] = 'w'
     comb = pd.read_sql("SELECT * FROM \"{}\";".format("combined"), engine)
-    combxwalk = pd.concat([walk,comb])
+    combxwalk = pd.concat([walk, comb])
     copy_from_stringio(conn, walk, 'walk')
     copy_from_stringio(conn, combxwalk, 'combxwalk')
 
-    query="""select * into short_walk from walk WHERE d_walk < 300"""
+    query = """select * into short_walk from walk WHERE d_walk < 300"""
     cursor.execute(query)
     conn.commit()
+
 
 cursor.execute('DROP SCHEMA public CASCADE')
 conn.commit()
@@ -153,7 +169,6 @@ cursor.execute('GRANT ALL ON SCHEMA public TO postgres')
 conn.commit()
 cursor.execute('GRANT ALL ON SCHEMA public TO public')
 conn.commit()
-
 
 for i in sql_schema.split(';'):
     try:
@@ -169,4 +184,3 @@ create_routes()
 create_combined()
 create_stoproutename()
 create_walk()
-

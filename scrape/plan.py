@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QComboBox, QPushButton, Q
     QWidget, QCompleter
 from sqlalchemy import create_engine
 
+os.chdir(sys.path[0])
 sys.path.append('../modules')
 
 import params

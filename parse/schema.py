@@ -1,9 +1,8 @@
 sql_schema = """create table nodes (
-stop_i numeric,
+stop_i numeric PRIMARY KEY ,
 lat numeric,
 lon numeric,
-name text,
-primary key (stop_i)
+name text
 );
 create table walk (
 from_stop_i numeric,
@@ -20,7 +19,7 @@ route_i numeric
 create table routes(
 route_type NUMERIC,
 route_name TEXT,
-route_i NUMERIC
+route_i NUMERIC PRIMARY KEY 
 );
 create table temporal_day(
 from_stop_i numeric,
