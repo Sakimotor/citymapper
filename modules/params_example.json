@@ -1,0 +1,7 @@
+{
+  "path": "~/citymapper",
+  "user": "postgres",
+  "database": "dbproject",
+  "password": "xxx",
+  "host": "localhost"
+}
