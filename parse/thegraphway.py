@@ -184,7 +184,8 @@ class MainWindow(QMainWindow):
         return shortest_names, which_routes_taken, total_time
 
     def button_Go(self):
-        if (self.from_box.findText(self.from_box.currentText()) == -1) or(self.to_box.findText(self.to_box.currentText()) == -1):
+        if (self.from_box.findText(self.from_box.currentText()) == -1) or (
+                self.to_box.findText(self.to_box.currentText()) == -1):
             err = QtWidgets.QMessageBox()
             err.setIcon(QtWidgets.QMessageBox.Warning)
             err.setText('Une de vos valeurs est invalide!')
@@ -302,9 +303,6 @@ class MainWindow(QMainWindow):
                 self.conn.commit()
                 lat2, lng2 = self.cursor.fetchall()[0]
                 self.webView.addSegment(lat1, lng1, lat2, lng2, self.colors[sss])
-
-
-
 
 
 def add_customjs(map_object):

@@ -15,10 +15,14 @@ def str_route_type(route_type):
 
 def str_route_num(route_nom):
     route_nom = str(route_nom).upper()
-    if (route_nom == 'BUS') or (route_nom == 'FUNICULAR') or (route_nom == 'RAIL'):
+    if (route_nom == 'BUS') or (route_nom == 'FUNICULAR'):
         route = 3
-    if route_nom == 'TRAM':
+    elif route_nom == 'TRAM':
         route = 0
-    if route_nom == 'METRO':
+    elif route_nom == 'METRO':
         route = 1
+    elif route_nom == 'RAIL':
+        route = 2
+    else:
+        route = -1
     return route
