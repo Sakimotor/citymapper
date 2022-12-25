@@ -66,7 +66,7 @@ headers = {
 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36"
 }
 
-pathtofolder = expanduser('~') + '/PycharmProjects/pythonProject2/Scrape/'
+pathtofolder = data_path + '\\Scrape\\'
 
 cursor.execute("""select route_type, route_name from routes
                    f group by route_type, route_name

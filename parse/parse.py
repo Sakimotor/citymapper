@@ -8,7 +8,6 @@ from os.path import expanduser
 os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
-import route_type
 
 # See params.py
 data_path, user, password, database, host = params.get_variables()
@@ -25,38 +24,25 @@ engine = create_engine(
 
 
 # copy dataFrame into a table defined in the schema
-def copy_from_stringio(conn, df, table):
-    """
-    Here we are going save the dataframe in memory
-    and use copy_from() to copy it to the table
-    """
-    # save dataframe to an in memory buffer
-    buffer = StringIO()
-    df.to_csv(buffer, index_label='id', header=False, index=False, sep=';')
-    buffer.seek(0)
+def copy_to_db(df, table):
+    print(df)
+    df.to_sql(table, con=engine, if_exists='append', index=False)
 
-    cursor = conn.cursor()
     try:
         cursor.execute(f"""select * from {table}""")
-        if not cursor.fetchone():
-            cursor.copy_from(buffer, table, sep=";")
-            conn.commit()
-            print("successfully copied the dataframe into the table")
-        else:
-            print(f"{table} : Copy not possible since table is not empty")
+        print(f"successfully copied the dataframe into {table}")
     except (Exception, psycopg2.DatabaseError) as error:
         print("Error: %s" % error)
         conn.rollback()
         cursor.close()
         return 1
-    cursor.close()
 
 
 def create_nodes():
     nodes = pd.read_csv(dp + 'network_' + 'nodes.csv', delimiter=';')
     nodes.columns = nodes.columns.str.lower()
     nodes['name'] = nodes['name'].str.lower()
-    copy_from_stringio(conn, nodes, 'nodes')
+    copy_to_db(nodes, 'nodes')
 
 
 def create_temporal_day():
@@ -75,7 +61,8 @@ def create_temporal_day():
     temporal_day['dep_time_ut'] = dep
     temporal_day['arr_time_ut'] = arr
 
-    copy_from_stringio(conn, temporal_day, 'temporal_day')
+    copy_to_db(temporal_day, 'temporal_day')
+
 
 
 def create_routes():
@@ -86,7 +73,7 @@ def create_routes():
             in gj]
     routes = pd.DataFrame(data, columns=['route_type', 'route_name', 'route_I'])
     routes.columns = routes.columns.str.lower()
-    copy_from_stringio(conn, routes, 'routes')
+    copy_to_db(routes, 'routes')
 
     cursor.execute("""
        SELECT route_type, route_name, min(route_i) AS route_rps_i
@@ -95,7 +82,8 @@ FROM routes
 GROUP BY route_type, route_name;
 ALTER TABLE route_rps
 ADD PRIMARY KEY (route_rps_i),
-ADD FOREIGN KEY (route_rps_i) REFERENCES routes (route_i);
+ADD FOREIGN KEY (route_rps_i) REFERENCES routes (route_i),
+ADD CONSTRAINT unique_route_name UNIQUE (route_type, route_name);
 
         """)
     conn.commit()
@@ -107,6 +95,12 @@ ADD FOREIGN KEY (route_rps_i) REFERENCES routes (route_i);
     """)
     conn.commit()
 
+    cursor.execute("""ALTER TABLE routexsuper
+        ADD PRIMARY KEY (route_i),
+        ADD FOREIGN KEY (route_i) references routes (route_i),
+        ADD FOREIGN KEY (route_rps_i) references route_rps (route_rps_i)""")
+    conn.commit()
+
 
 def create_combined():
     comb = pd.read_csv(dp + 'network_combined.csv', delimiter=';')
@@ -116,24 +110,47 @@ def create_combined():
     comb = pd.concat([comb[['from_stop_i', 'to_stop_i', 'duration_avg']], comb_split_routes], axis=1)
     comb = comb.explode('route_i_counts')
     comb = comb.iloc[::2]
+    comb = comb.rename(columns={'route_i_counts': 'route_i'})
+    print(comb)
+    copy_to_db(comb, 'combined')
 
-    copy_from_stringio(conn, comb, 'combined')
-
-    cursor.execute("""select from_stop_i, to_stop_i, duration_avg, routexsuper.route_rps_i into super_route_comb
+    cursor.execute("""select DISTINCT from_stop_i, to_stop_i, duration_avg, routexsuper.route_rps_i into super_route_comb
     from combined
     INNER JOIN routexsuper ON combined.route_i = routexsuper.route_i""")
+    conn.commit()
+
+    cursor.execute("""ALTER TABLE super_route_comb
+    ADD PRIMARY KEY (from_stop_i, to_stop_i, route_rps_i),
+    ADD FOREIGN KEY (route_rps_i) references route_rps(route_rps_i)""")
     conn.commit()
 
 
 def create_stoproutename():
     cursor.execute("""
-        SELECT * into stopxroute
-        FROM
-        ((SELECT from_stop_i as stop_i, route_i
-        FROM combined)
-        UNION
-        (SELECT to_stop_i as stop_i, route_i
-        FROM combined)) as yes""")
+            SELECT from_stop_i, to_stop_i, route_i into stopxroute
+            FROM
+            combined""")
+    conn.commit()
+    cursor.execute("""
+    ALTER TABLE stopxroute
+    ADD COLUMN stop_i numeric;
+    INSERT INTO stopxroute (stop_i, route_i, from_stop_i, to_stop_i)
+    SELECT DISTINCT stop_i, route_i, from_stop_i, to_stop_i
+    FROM (
+        SELECT from_stop_i AS stop_i, route_i, from_stop_i, to_stop_i
+        FROM combined
+        UNION ALL
+        SELECT to_stop_i AS stop_i, route_i, from_stop_i, to_stop_i
+        FROM combined
+    ) AS temp_table;
+    
+    DELETE FROM stopxroute
+    WHERE stop_i IS NULL;""")
+    conn.commit();
+    cursor.execute("""
+        ALTER TABLE stopxroute
+        ADD PRIMARY KEY (from_stop_i, to_stop_i, route_i, stop_i),
+        ADD FOREIGN KEY (from_stop_i, to_stop_i, route_i) references  combined (from_stop_i, to_stop_i, route_i)""")
     conn.commit()
     cursor.execute("""select distinct nodes.name, A.stop_I, route_type, route_name into stoproutename
     from stopxroute as A
@@ -141,6 +158,10 @@ def create_stoproutename():
     INNER JOIN nodes ON A.stop_i = nodes.stop_i
     order by A.stop_I""")
     conn.commit()
+    cursor.execute("""ALTER TABLE stoproutename
+     ADD PRIMARY KEY (stop_i, route_type, route_name),
+     ADD FOREIGN KEY (route_type, route_name) references route_rps(route_type, route_name),
+     ADD FOREIGN KEY (stop_i) references nodes(stop_i)""")
 
 
 # walk + combxwalk + short_walk
@@ -149,14 +170,23 @@ def create_walk():
     walk = pd.read_csv(dp + 'network_walk.csv', delimiter=';')
     walk.columns = walk.columns.str.lower()
     walk['d_walk'] /= 2.5  ### we assumed a person walks at 2.5 m.s-1
-    walk = walk[["from_stop_i", "to_stop_i", "d_walk"]].rename(columns={'d_walk': 'duration_avg'})
     walk['route_i'] = 'w'
-    comb = pd.read_sql("SELECT * FROM \"{}\";".format("combined"), engine)
-    combxwalk = pd.concat([walk, comb])
-    copy_from_stringio(conn, walk, 'walk')
-    copy_from_stringio(conn, combxwalk, 'combxwalk')
+    walk = walk.drop(columns=['d'])
+    copy_to_db(walk, 'walk')
+    walk = walk.rename(columns={'d_walk': 'duration_avg'})
 
-    query = """select * into short_walk from walk WHERE d_walk < 300"""
+    comb = pd.read_sql("SELECT * FROM combined;", engine)
+    combxwalk = pd.concat([walk, comb])
+    copy_to_db(combxwalk, 'combxwalk')
+
+
+
+
+    query = """select * into short_walk from walk WHERE d_walk < 300;
+    ALTER TABLE short_walk
+    ADD PRIMARY KEY (from_stop_i, to_stop_i),
+    ADD FOREIGN KEY (from_stop_i, to_stop_i) references walk (from_stop_i, to_stop_i);
+    """
     cursor.execute(query)
     conn.commit()
 

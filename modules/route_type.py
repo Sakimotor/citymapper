@@ -11,3 +11,14 @@ def str_route_type(route_type):
     else:
         route = 'ERROR'
     return route
+
+
+def str_route_num(route_nom):
+    route_nom = str(route_nom).upper()
+    if (route_nom == 'BUS') or (route_nom == 'FUNICULAR') or (route_nom == 'RAIL'):
+        route = 3
+    if route_nom == 'TRAM':
+        route = 0
+    if route_nom == 'METRO':
+        route = 1
+    return route

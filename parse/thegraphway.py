@@ -13,6 +13,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QLabel, \
     QSplitter, QHBoxLayout, QVBoxLayout, QWidget, QCompleter
+from PyQt5 import QtWidgets
 from branca.element import Element
 from jinja2 import Template
 from sqlalchemy import create_engine
@@ -183,7 +184,14 @@ class MainWindow(QMainWindow):
         return shortest_names, which_routes_taken, total_time
 
     def button_Go(self):
+        if (self.from_box.findText(self.from_box.currentText()) == -1) or(self.to_box.findText(self.to_box.currentText()) == -1):
+            err = QtWidgets.QMessageBox()
+            err.setIcon(QtWidgets.QMessageBox.Warning)
+            err.setText('Une de vos valeurs est invalide!')
+            err.exec_()
+            return
         self.to_stop_i = str(self.to_box.currentText()).replace("'", "''")
+
         self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.to_stop_i}'""")
         self.conn.commit()
         myrows = self.cursor.fetchall()
