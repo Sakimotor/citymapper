@@ -6,7 +6,7 @@ scrape/Scrape/
 
 *.zip
 
-modules/params.py
+modules/params.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
