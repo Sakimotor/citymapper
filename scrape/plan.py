@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
             err.setIcon(QtWidgets.QMessageBox.Warning)
             err.setText(f"pas d'URL spécifiée pour la ligne {self.route}")
             err.exec_()
-            self.pixmap = QPixmap(os.path.join('./data_json/', 'default.png'))
+            self.pixmap = QPixmap(os.path.join('.', 'default.png'))
             self.label.setPixmap(self.pixmap)
             return
 
