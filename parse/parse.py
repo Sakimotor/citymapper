@@ -190,15 +190,19 @@ def create_walk():
     cursor.execute(query)
     conn.commit()
 
-
-cursor.execute('DROP SCHEMA public CASCADE')
-conn.commit()
-cursor.execute('CREATE SCHEMA public')
-conn.commit()
-cursor.execute('GRANT ALL ON SCHEMA public TO postgres')
-conn.commit()
-cursor.execute('GRANT ALL ON SCHEMA public TO public')
-conn.commit()
+try:
+    cursor.execute('DROP SCHEMA public CASCADE')
+    conn.commit()
+    cursor.execute('CREATE SCHEMA public')
+    conn.commit()
+    cursor.execute('GRANT ALL ON SCHEMA public TO postgres')
+    conn.commit()
+    cursor.execute('GRANT ALL ON SCHEMA public TO public')
+    conn.commit()
+except psycopg2.ProgrammingError as err:
+    conn.rollback()
+    cursor.execute('DROP owned by l3info_32')
+    conn.commit()
 
 for i in sql_schema.split(';'):
     try:
