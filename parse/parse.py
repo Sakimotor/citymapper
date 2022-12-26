@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 import psycopg2, datetime, sys, geojson, os
 from io import StringIO
@@ -8,11 +10,11 @@ from os.path import expanduser
 os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
+import route_type
 
 # See params.py
 data_path, user, password, database, host = params.get_variables()
 
-print("variables:" + str(data_path) + " " + str(user) + " " + str(password) + " " + str(database) + " " + str(host))
 
 sys.path.append(data_path)
 dp = expanduser(data_path)
@@ -23,9 +25,11 @@ engine = create_engine(
     'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
 
 
+
+
+
 # copy dataFrame into a table defined in the schema
 def copy_to_db(df, table):
-    print(df)
     df.to_sql(table, con=engine, if_exists='append', index=False)
 
     try:
@@ -62,7 +66,6 @@ def create_temporal_day():
     temporal_day['arr_time_ut'] = arr
 
     copy_to_db(temporal_day, 'temporal_day')
-
 
 
 def create_routes():
@@ -111,7 +114,6 @@ def create_combined():
     comb = comb.explode('route_i_counts')
     comb = comb.iloc[::2]
     comb = comb.rename(columns={'route_i_counts': 'route_i'})
-    print(comb)
     copy_to_db(comb, 'combined')
 
     cursor.execute("""select DISTINCT from_stop_i, to_stop_i, duration_avg, routexsuper.route_rps_i into super_route_comb
@@ -169,7 +171,8 @@ def create_stoproutename():
 def create_walk():
     walk = pd.read_csv(dp + 'network_walk.csv', delimiter=';')
     walk.columns = walk.columns.str.lower()
-    walk['d_walk'] /= 2.5  ### we assumed a person walks at 2.5 m.s-1
+    # we assumed a person walks at 2.5 m.s-1
+    walk['d_walk'] /= 2.5
     walk['route_i'] = 'w'
     walk = walk.drop(columns=['d'])
     copy_to_db(walk, 'walk')
@@ -179,9 +182,6 @@ def create_walk():
     combxwalk = pd.concat([walk, comb])
     copy_to_db(combxwalk, 'combxwalk')
 
-
-
-
     query = """select * into short_walk from walk WHERE d_walk < 300;
     ALTER TABLE short_walk
     ADD PRIMARY KEY (from_stop_i, to_stop_i),
@@ -189,6 +189,43 @@ def create_walk():
     """
     cursor.execute(query)
     conn.commit()
+
+
+def create_lines():
+    # Open the json file that tells the line names related to their line IDs
+
+    # File source: https://data.iledefrance-mobilites.fr/explore/dataset/referentiel-des-lignes
+    with open(os.path.join(data_path, 'referentiel-des-lignes.json'), 'r') as f:
+        json_file = json.load(f)
+    data = [[line['fields']['transportmode'], line['fields']['id_line'], line['fields']['name_line']] for line
+            in
+            json_file]
+    lines = pd.DataFrame(data, columns=['transportmode', 'id_line', 'name_line'])
+
+    # Open the json file that gives the url relative to a line_id
+
+    # File source: https://data.iledefrance-mobilites.fr/explore/dataset/fiches-horaires-et-plans/
+    with open(os.path.join(data_path, 'fiches-horaires-et-plans.json'), 'r') as f:
+        json_file = json.load(f)
+    data = [[line['fields']['id_line'], line['fields']['url']] for line in json_file]
+    urls = pd.DataFrame(data, columns=['id_line', 'url'])
+
+    # Merge the results of the two json files above, then add it to the database
+    merge = pd.merge(lines, urls, how='inner', on=["id_line"])
+    merge = merge.drop_duplicates()
+    route_merge = merge['transportmode'].values
+
+    # Convert transportmode to route_type before moving on
+    for route_x in range(len(route_merge)):
+        route_merge[route_x] = int(route_type.str_route_num(route_merge[route_x]))
+    merge['transportmode'] = route_merge
+    merge = merge.rename(columns={'transportmode': 'route_type'})
+    merge.to_sql('lines', con=engine, if_exists='replace', index=False)
+
+    cursor.execute("""ALTER TABLE lines
+                ADD PRIMARY KEY (url, id_line)""")
+    conn.commit()
+
 
 try:
     cursor.execute('DROP SCHEMA public CASCADE')
@@ -218,3 +255,4 @@ create_routes()
 create_combined()
 create_stoproutename()
 create_walk()
+create_lines()

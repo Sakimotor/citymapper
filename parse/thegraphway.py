@@ -3,12 +3,14 @@ import io
 import json
 import sys
 import time
+import webbrowser
 from os.path import expanduser
 
 import folium
 import networkx as nx
 import pandas as pd
 import psycopg2
+import requests
 from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QLabel, \
@@ -50,6 +52,7 @@ class MainWindow(QMainWindow):
         main.setFocusPolicy(Qt.StrongFocus)
         self.tableWidget = QTableWidget()
         self.tableWidget.doubleClicked.connect(self.table_Click)
+        self.tableWidget.itemClicked.connect(self.cell_Click)
         self.rows = []
         self.webView = myWebView()
 
@@ -196,13 +199,11 @@ class MainWindow(QMainWindow):
         self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.to_stop_i}'""")
         self.conn.commit()
         myrows = self.cursor.fetchall()
-        print(f"nodes pour {self.to_stop_i}: {myrows}")
         self.to_stop_i = int(myrows[0][0])
         self.from_stop_i = str(self.from_box.currentText()).replace("'", "''")
         self.cursor.execute(f""" SELECT stop_i FROM nodes WHERE name = '{self.from_stop_i}'""")
         self.conn.commit()
         myrows = self.cursor.fetchall()
-        print(f"nodes pour {self.from_stop_i}: {myrows}")
         self.from_stop_i = int(myrows[0][0])
 
         self.tableWidget.clearContents()
@@ -219,7 +220,6 @@ class MainWindow(QMainWindow):
         G = nx.from_pandas_edgelist(super_short_comb_walk, source="from_stop_i", target="to_stop_i", edge_attr=True)
         self.shortest = nx.shortest_path(G, source=self.from_stop_i, target=self.to_stop_i, weight="duration_avg")
         self.shortest = [int(i) for i in self.shortest]
-        print(f"calculating path from {self.from_stop_i} to {self.to_stop_i}")
         self.shortest_names, self.shortest_routes, self.shortest_time = self.path_processing(G, self.shortest)
         numrows = 2
         numcols = len(self.shortest_routes.index)
@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
         folium will choose one of their colour and colour every polyline with this colour,
         but when you zoom in, you get the expected color"""
         for sss in range(len(self.colors) - 1):
+
             if self.colors[sss] == self.colors[sss + 1]:
                 self.cursor.execute(f"""select lat, lon from nodes where stop_i = {self.shortest[sss]}""")
                 self.conn.commit()
@@ -303,6 +304,54 @@ class MainWindow(QMainWindow):
                 self.conn.commit()
                 lat2, lng2 = self.cursor.fetchall()[0]
                 self.webView.addSegment(lat1, lng1, lat2, lng2, self.colors[sss])
+
+    def cell_Click(self, item):
+        row = item.row()
+        column = item.column()
+        text = item.text()
+        type_cur = route_type.str_route_num(text.split(' ')[0])
+        name = text.split(' ')[1]
+        if (row == 0) and (column%2 == 1):
+            ask = QtWidgets.QMessageBox()
+            ask.setIcon(QtWidgets.QMessageBox.Question)
+            ask.setText(f"Voulez-vous accèder au plan de la ligne {text} ?")
+            ask.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            result = ask.exec_()
+
+            if result == QtWidgets.QMessageBox.Yes:
+                # Code to downnload the pdf/jpeg file from the url indicated in the database, then display it
+                self.cursor.execute(
+                    f""" SELECT id_line, url FROM lines WHERE name_line = '{name}' and route_type = {type_cur}""")
+                self.conn.commit()
+                myrows = self.cursor.fetchall()
+                if len(myrows) <= 0:
+                    err = QtWidgets.QMessageBox()
+                    err.setIcon(QtWidgets.QMessageBox.Warning)
+                    err.setText(f"pas d'URL spécifiée pour la ligne {name} !")
+                    err.exec_()
+                    return
+                for row in myrows:
+                    file_name = row[0]
+                    file_url = row[1]
+                    try:
+                        headers = headers = {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0'}
+                        response = requests.get(file_url, headers=headers)
+                        if response.status_code > 308:
+                            print(f"La requête HTTP retourne une erreur {response.status_code}")
+                            continue
+                        webbrowser.open(file_url)
+                        return
+                    except requests.exceptions.ConnectionError:
+                        print(f'Timeout à l\'adresse {file_url}')
+                print("La ligne a été traitée")
+                return
+            return
+
+
+
+
+
 
 
 def add_customjs(map_object):

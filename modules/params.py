@@ -12,8 +12,6 @@ def get_variables():
         password = test_json["password"]
         database = test_json["database"]
         host = test_json["host"]
-        print("variables:" + str(data_path) + " " + str(user) + " " + str(password) + " " + str(database) + " " + str(
-            host))
         return data_path, user, password, database, host
 
 
