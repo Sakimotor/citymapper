@@ -33,8 +33,9 @@ create table combined(
 from_stop_i numeric,
 to_stop_i numeric,
 duration_avg numeric,
-route_i numeric references routes(route_i),
-PRIMARY KEY (from_stop_i, to_stop_i, route_i)
+route_i numeric ,
+PRIMARY KEY (from_stop_i, to_stop_i, route_i),
+FOREIGN KEY (route_i) references routes(route_i)
 );
 
 create table combxwalk(

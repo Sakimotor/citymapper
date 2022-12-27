@@ -12,17 +12,15 @@ sys.path.append('../modules')
 import params
 import route_type
 
-# See params.py
-data_path, user, password, database, host = params.get_variables()
-
-
-sys.path.append(data_path)
-dp = expanduser(data_path)
-conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
-cursor = conn.cursor()
-print("database projet connected to the remote server")
-engine = create_engine(
-    'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
+data_path = None
+user = None
+password = None
+database = None
+host = None
+conn = None
+cursor = None
+engine = None
+dp = None
 
 
 
@@ -148,7 +146,7 @@ def create_stoproutename():
     
     DELETE FROM stopxroute
     WHERE stop_i IS NULL;""")
-    conn.commit();
+    conn.commit()
     cursor.execute("""
         ALTER TABLE stopxroute
         ADD PRIMARY KEY (from_stop_i, to_stop_i, route_i, stop_i),
@@ -181,14 +179,6 @@ def create_walk():
     comb = pd.read_sql("SELECT * FROM combined;", engine)
     combxwalk = pd.concat([walk, comb])
     copy_to_db(combxwalk, 'combxwalk')
-
-    query = """select * into short_walk from walk WHERE d_walk < 300;
-    ALTER TABLE short_walk
-    ADD PRIMARY KEY (from_stop_i, to_stop_i),
-    ADD FOREIGN KEY (from_stop_i, to_stop_i) references walk (from_stop_i, to_stop_i);
-    """
-    cursor.execute(query)
-    conn.commit()
 
 
 def create_lines():
@@ -227,32 +217,51 @@ def create_lines():
     conn.commit()
 
 
-try:
-    cursor.execute('DROP SCHEMA public CASCADE')
-    conn.commit()
-    cursor.execute('CREATE SCHEMA public')
-    conn.commit()
-    cursor.execute('GRANT ALL ON SCHEMA public TO postgres')
-    conn.commit()
-    cursor.execute('GRANT ALL ON SCHEMA public TO public')
-    conn.commit()
-except psycopg2.ProgrammingError as err:
-    conn.rollback()
-    cursor.execute('DROP owned by l3info_32')
-    conn.commit()
+def main():
+    global data_path, user, password, database, host, conn, cursor, engine, dp
+    data_path, user, password, database, host = params.get_variables()
 
-for i in sql_schema.split(';'):
+    sys.path.append(data_path)
+
+    conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
+    cursor = conn.cursor()
+    dp = expanduser(data_path)
+    print("database projet connected to the remote server")
+    engine = create_engine(
+        'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
     try:
-        cursor.execute(i)
+        try:
+            cursor.execute('DROP SCHEMA public CASCADE')
+            conn.commit()
+        except psycopg2.ProgrammingError as err:
+            conn.rollback()
+        cursor.execute('CREATE SCHEMA public')
+        conn.commit()
+        cursor.execute('GRANT ALL ON SCHEMA public TO postgres')
+        conn.commit()
+        cursor.execute('GRANT ALL ON SCHEMA public TO public')
         conn.commit()
     except psycopg2.ProgrammingError as err:
-        # print("we caught the exception")
         conn.rollback()
+        cursor.execute('DROP owned by l3info_32')
+        conn.commit()
 
-create_nodes()
-create_temporal_day()
-create_routes()
-create_combined()
-create_stoproutename()
-create_walk()
-create_lines()
+    for i in sql_schema.split(';'):
+        try:
+            cursor.execute(i)
+            conn.commit()
+        except psycopg2.ProgrammingError as err:
+            # print("we caught the exception")
+            conn.rollback()
+
+    create_nodes()
+    create_temporal_day()
+    create_routes()
+    create_combined()
+    create_stoproutename()
+    create_walk()
+    create_lines()
+
+
+if __name__ == '__main__':
+    main()

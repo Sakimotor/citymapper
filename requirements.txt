@@ -1,0 +1,10 @@
+psycopg2==2.9.5
+requests==2.25.1
+networkx==2.8.8
+geojson==2.5.0
+SQLAlchemy==1.4.45
+Jinja2==3.0.1
+folium==0.13.0
+branca==0.6.0
+pandas==1.5.2
+PyQt5==5.15.7

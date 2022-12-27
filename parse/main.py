@@ -10,11 +10,11 @@ import folium
 import networkx as nx
 import pandas as pd
 import psycopg2
-import requests
 from PyQt5.QtCore import Qt
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QLabel, \
-    QSplitter, QHBoxLayout, QVBoxLayout, QWidget, QCompleter
+    QSplitter, QHBoxLayout, QVBoxLayout, QWidget, QCompleter, QDialog, QLineEdit, QDialogButtonBox, QMessageBox, \
+    QFileDialog
 from PyQt5 import QtWidgets
 from branca.element import Element
 from jinja2 import Template
@@ -25,24 +25,61 @@ os.chdir(sys.path[0])
 sys.path.append('../modules')
 import params
 import route_type
-
-# See params.py
-data_path, user, password, database, host = params.get_variables()
-
-sys.path.append(data_path)
-dp = expanduser(data_path)
+import parse
 
 number_of_click = 0
 
 
-class MainWindow(QMainWindow):
+class DialogParams(QDialog):
     def __init__(self):
         super().__init__()
-        self.cursor = None
-        # Initiating connection with the PostgreSQL database
-        self.engine = create_engine(
-            'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
-        self.conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
+        self.setWindowTitle("Entrez les informations de connexion")
+
+        self.user_input = QLineEdit(self)
+        self.user_label = QLabel("Utilisateur:", self)
+        self.password_input = QLineEdit(self)
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_label = QLabel("Mot de passe:", self)
+        self.database_input = QLineEdit(self)
+        self.database_label = QLabel("Base de données:", self)
+        self.host_input = QLineEdit(self)
+        self.host_label = QLabel("Hôte:", self)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok)
+        self.button_box.accepted.connect(self.accept)
+
+        layout = QVBoxLayout()
+
+        # ajout de chaque QLabel et QLineEdit dans un QHBoxLayout
+        user_layout = QHBoxLayout()
+        user_layout.addWidget(self.user_label)
+        user_layout.addWidget(self.user_input)
+        layout.addLayout(user_layout)
+
+        password_layout = QHBoxLayout()
+        password_layout.addWidget(self.password_label)
+        password_layout.addWidget(self.password_input)
+        layout.addLayout(password_layout)
+
+        database_layout = QHBoxLayout()
+        database_layout.addWidget(self.database_label)
+        database_layout.addWidget(self.database_input)
+        layout.addLayout(database_layout)
+
+        host_layout = QHBoxLayout()
+        host_layout.addWidget(self.host_label)
+        host_layout.addWidget(self.host_input)
+        layout.addLayout(host_layout)
+
+        layout.addWidget(self.button_box)
+
+        self.setLayout(layout)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+
+        super().__init__()
 
         # Setting up the window layout
         self.resize(600, 600)
@@ -94,6 +131,45 @@ class MainWindow(QMainWindow):
         self.maptype_box.currentIndexChanged.connect(self.webView.setMap)
         controls_panel.addWidget(self.maptype_box)
 
+        # On demande à l'utilisateur de créer le fichier params.json s'il n'existe pas encore
+        if params.get_variables() is None:
+            err = QtWidgets.QMessageBox()
+            err.setIcon(QtWidgets.QMessageBox.Information)
+            err.setText("Veuillez définir les paramètres relatifs à la base de données et au dossier 'data' .")
+            while True:
+                err.exec_()
+                dialog = DialogParams()
+                result = dialog.exec_()
+                if result == QDialog.Accepted:
+                    user = dialog.user_input.text()
+                    password = dialog.password_input.text()
+                    database = dialog.database_input.text()
+                    host = dialog.host_input.text()
+                    while True:
+                        options = QFileDialog.Options()
+                        options |= QFileDialog.ReadOnly
+                        folder_path = QFileDialog.getExistingDirectory(self, "Sélectionnez un dossier", options=options)
+
+                        if folder_path:
+                            params.set_variables(folder_path, user, password, database, host)
+                            break
+                        else:
+                            QMessageBox.warning(self, "Erreur", "Veuillez sélectionner un dossier.")
+
+                    break
+
+        # See params.py
+        data_path, user, password, database, host = params.get_variables()
+
+        sys.path.append(data_path)
+        dp = expanduser(data_path)
+
+        self.cursor = None
+        # Initiating connection with the PostgreSQL database
+        self.engine = create_engine(
+            'postgresql+psycopg2://' + str(user) + ':' + str(password) + '@' + str(host) + '/' + str(database))
+        self.conn = psycopg2.connect(database=str(database), user=str(user), host=str(host), password=str(password))
+
         self.connect_DB()
         self.show()
 
@@ -101,13 +177,23 @@ class MainWindow(QMainWindow):
 
         print("database project connected to server")
         self.cursor = self.conn.cursor()
-        self.cursor.execute("""SELECT distinct name FROM nodes ORDER BY name""")
-        self.conn.commit()
-        rows = self.cursor.fetchall()
+        try:
+            self.cursor.execute("""SELECT distinct name FROM nodes ORDER BY name""")
+            self.conn.commit()
+            rows = self.cursor.fetchall()
 
-        for row in rows:
-            self.from_box.addItem(str(row[0]))
-            self.to_box.addItem(str(row[0]))
+            for row in rows:
+                self.from_box.addItem(str(row[0]))
+                self.to_box.addItem(str(row[0]))
+        except psycopg2.ProgrammingError as e:
+            self.conn.rollback()
+            err = QtWidgets.QMessageBox()
+            err.setIcon(QtWidgets.QMessageBox.Warning)
+            err.setText("La table n'existe pas! récupération des données en cours.")
+            err.exec_()
+            parse.main()
+            self.connect_DB()
+        return
 
     def path_processing(self, G, path):
         shortest_names = pd.concat([self.nodes.loc[self.nodes['stop_i'] == i] for i in path]).reset_index()
@@ -213,7 +299,7 @@ class MainWindow(QMainWindow):
         self.routes = pd.read_sql("SELECT * FROM \"{}\";".format("routes"), self.engine)
         super_route_comb = pd.read_sql("SELECT * FROM \"{}\";".format("super_route_comb"), self.engine)
         super_route_comb = super_route_comb.rename(columns={'route_rps_i': 'route_i'})
-        short_walk = pd.read_sql("SELECT * FROM \"{}\";".format("short_walk"), self.engine)
+        short_walk = pd.read_sql("SELECT * FROM \"{}\" WHERE d_walk < 300;".format("walk"), self.engine)
         short_walk = short_walk.rename(columns={'d_walk': 'duration_avg'})
 
         super_short_comb_walk = pd.concat([short_walk, super_route_comb])
@@ -239,8 +325,8 @@ class MainWindow(QMainWindow):
                     if sss <= self.shortest_routes.index[-1] and sss == self.shortest_routes.index[nth_route + 1]:
                         nth_route += 1
 
-                lat = self.nodes.loc[self.nodes['stop_i'] == i]['lat'].item()
-                lng = self.nodes.loc[self.nodes['stop_i'] == i]['lon'].item()
+                lat = self.nodes.loc[self.nodes['stop_i'] == i]['lat'].head(1)
+                lng = self.nodes.loc[self.nodes['stop_i'] == i]['lon'].head(1)
                 self.colors.append(HEX[nth_route])
                 self.webView.addPoint(lat, lng, HEX[nth_route])
             else:
@@ -258,14 +344,16 @@ class MainWindow(QMainWindow):
         self.tableWidget.setItem(row_num, jj, QTableWidgetItem(shortest_names.iloc[-1]['name']))
         total_time = self.shortest_time
         self.tableWidget.setSpan(row_num + 1, 1, 1, 2 * numcols)
+        newItem = QTableWidgetItem('Total time With Waiting')
+        self.tableWidget.setItem(row_num + 1, 0, newItem)
         newItem = QTableWidgetItem(
             f"""{int(total_time // 3600)}h {int(total_time % 3600 // 60)}m {int(total_time % 3600 % 60)}s""")
         self.tableWidget.setItem(row_num + 1, 1, newItem)
-        newItem = QTableWidgetItem('Total time With Waiting')
-        self.tableWidget.setItem(row_num + 1, 0, newItem)
 
     def button_Clear(self):
         self.webView.clearMap(self.maptype_box.currentIndex())
+        self.from_box.clearEditText()
+        self.to_box.clearEditText()
         self.update()
         global number_of_click
         number_of_click = 0
@@ -311,7 +399,7 @@ class MainWindow(QMainWindow):
         text = item.text()
         type_cur = route_type.str_route_num(text.split(' ')[0])
         name = text.split(' ')[1]
-        if (row == 0) and (column%2 == 1):
+        if (row == 0) and (column % 2 == 1):
             ask = QtWidgets.QMessageBox()
             ask.setIcon(QtWidgets.QMessageBox.Question)
             ask.setText(f"Voulez-vous accèder au plan de la ligne {text} ?")
@@ -330,28 +418,23 @@ class MainWindow(QMainWindow):
                     err.setText(f"pas d'URL spécifiée pour la ligne {name} !")
                     err.exec_()
                     return
-                for row in myrows:
+                for index, row in enumerate(myrows):
                     file_name = row[0]
                     file_url = row[1]
-                    try:
-                        headers = headers = {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0'}
-                        response = requests.get(file_url, headers=headers)
-                        if response.status_code > 308:
-                            print(f"La requête HTTP retourne une erreur {response.status_code}")
-                            continue
-                        webbrowser.open(file_url)
-                        return
-                    except requests.exceptions.ConnectionError:
-                        print(f'Timeout à l\'adresse {file_url}')
-                print("La ligne a été traitée")
-                return
+                    # Ouvre l'URL dans le navigateur
+                    webbrowser.open(file_url)
+                    # Si ce n'est pas la dernière itération de la boucle, on demande à l'utilisateur s'il est satisfait
+                    if index != len(myrows) - 1:
+                        message = QMessageBox()
+                        message.setText(f"Ce plan est-il le bon ? Un autre est disponible à consulter")
+                        message.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                        result = message.exec_()
+                        # Si l'utilisateur est satisfait, on s'arrête
+                        if result == QMessageBox.Yes:
+                            return
+            print("La ligne a été traitée")
             return
-
-
-
-
-
+        return
 
 
 def add_customjs(map_object):
