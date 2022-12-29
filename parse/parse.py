@@ -23,9 +23,6 @@ engine = None
 dp = None
 
 
-
-
-
 # copy dataFrame into a table defined in the schema
 def copy_to_db(df, table):
     df.to_sql(table, con=engine, if_exists='append', index=False)
@@ -77,29 +74,17 @@ def create_routes():
     copy_to_db(routes, 'routes')
 
     cursor.execute("""
-       SELECT route_type, route_name, min(route_i) AS route_rps_i
+       SELECT route_i, route_type, route_name, min(route_i) AS route_rps_i
 INTO route_rps
 FROM routes
-GROUP BY route_type, route_name;
+GROUP BY route_type, route_name, route_i;
 ALTER TABLE route_rps
 ADD PRIMARY KEY (route_rps_i),
 ADD FOREIGN KEY (route_rps_i) REFERENCES routes (route_i),
-ADD CONSTRAINT unique_route_name UNIQUE (route_type, route_name);
+ADD FOREIGN KEY (route_i) REFERENCES  routes (route_i),
+ADD CONSTRAINT unique_route_name UNIQUE (route_i, route_type, route_name);
 
         """)
-    conn.commit()
-
-    cursor.execute("""
-    select route_i, route_rps.route_rps_i into routexsuper
-    from routes INNER JOIN route_rps
-    ON routes.route_type=route_rps.route_type AND routes.route_name = route_rps.route_name
-    """)
-    conn.commit()
-
-    cursor.execute("""ALTER TABLE routexsuper
-        ADD PRIMARY KEY (route_i),
-        ADD FOREIGN KEY (route_i) references routes (route_i),
-        ADD FOREIGN KEY (route_rps_i) references route_rps (route_rps_i)""")
     conn.commit()
 
 
@@ -114,57 +99,17 @@ def create_combined():
     comb = comb.rename(columns={'route_i_counts': 'route_i'})
     copy_to_db(comb, 'combined')
 
-    cursor.execute("""select DISTINCT from_stop_i, to_stop_i, duration_avg, routexsuper.route_rps_i into super_route_comb
+    cursor.execute("""select DISTINCT from_stop_i, to_stop_i, duration_avg, route_rps.route_rps_i into combinedxrps
     from combined
-    INNER JOIN routexsuper ON combined.route_i = routexsuper.route_i""")
+    INNER JOIN route_rps ON combined.route_i = route_rps.route_i""")
     conn.commit()
 
-    cursor.execute("""ALTER TABLE super_route_comb
+    cursor.execute("""ALTER TABLE combinedxrps
     ADD PRIMARY KEY (from_stop_i, to_stop_i, route_rps_i),
-    ADD FOREIGN KEY (route_rps_i) references route_rps(route_rps_i)""")
+    ADD FOREIGN KEY (route_rps_i) references route_rps(route_rps_i),
+    ADD FOREIGN KEY (from_stop_i, to_stop_i, route_rps_i) references  combined(from_stop_i, to_stop_i, route_i) """)
     conn.commit()
 
-
-def create_stoproutename():
-    cursor.execute("""
-            SELECT from_stop_i, to_stop_i, route_i into stopxroute
-            FROM
-            combined""")
-    conn.commit()
-    cursor.execute("""
-    ALTER TABLE stopxroute
-    ADD COLUMN stop_i numeric;
-    INSERT INTO stopxroute (stop_i, route_i, from_stop_i, to_stop_i)
-    SELECT DISTINCT stop_i, route_i, from_stop_i, to_stop_i
-    FROM (
-        SELECT from_stop_i AS stop_i, route_i, from_stop_i, to_stop_i
-        FROM combined
-        UNION ALL
-        SELECT to_stop_i AS stop_i, route_i, from_stop_i, to_stop_i
-        FROM combined
-    ) AS temp_table;
-    
-    DELETE FROM stopxroute
-    WHERE stop_i IS NULL;""")
-    conn.commit()
-    cursor.execute("""
-        ALTER TABLE stopxroute
-        ADD PRIMARY KEY (from_stop_i, to_stop_i, route_i, stop_i),
-        ADD FOREIGN KEY (from_stop_i, to_stop_i, route_i) references  combined (from_stop_i, to_stop_i, route_i)""")
-    conn.commit()
-    cursor.execute("""select distinct nodes.name, A.stop_I, route_type, route_name into stoproutename
-    from stopxroute as A
-    INNER JOIN routes ON A.route_i = routes.route_i
-    INNER JOIN nodes ON A.stop_i = nodes.stop_i
-    order by A.stop_I""")
-    conn.commit()
-    cursor.execute("""ALTER TABLE stoproutename
-     ADD PRIMARY KEY (stop_i, route_type, route_name),
-     ADD FOREIGN KEY (route_type, route_name) references route_rps(route_type, route_name),
-     ADD FOREIGN KEY (stop_i) references nodes(stop_i)""")
-
-
-# walk + combxwalk + short_walk
 
 def create_walk():
     walk = pd.read_csv(dp + 'network_walk.csv', delimiter=';')
@@ -174,11 +119,23 @@ def create_walk():
     walk['route_i'] = 'w'
     walk = walk.drop(columns=['d'])
     copy_to_db(walk, 'walk')
-    walk = walk.rename(columns={'d_walk': 'duration_avg'})
 
-    comb = pd.read_sql("SELECT * FROM combined;", engine)
-    combxwalk = pd.concat([walk, comb])
-    copy_to_db(combxwalk, 'combxwalk')
+    cursor.execute("""SELECT * into shortest_route
+    from walk
+    where d_walk < 300;
+    
+    alter table shortest_route
+    rename column d_walk to duration_avg;
+    
+    insert into shortest_route
+    select * from combinedxrps;
+    """)
+    conn.commit()
+
+    cursor.execute("""alter table shortest_route
+    add primary key(from_stop_i, to_stop_i, route_i)""")
+    conn.commit()
+
 
 
 def create_lines():
@@ -255,11 +212,10 @@ def main():
             conn.rollback()
 
     create_nodes()
-    create_temporal_day()
     create_routes()
     create_combined()
-    create_stoproutename()
     create_walk()
+    create_temporal_day()
     create_lines()
 
 

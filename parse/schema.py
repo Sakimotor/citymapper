@@ -11,17 +11,7 @@ route_name TEXT,
 route_i NUMERIC, 
 PRIMARY KEY (route_i)
 );
-create table temporal_day(
-from_stop_i numeric,
-to_stop_i numeric,
-dep_time_ut numeric,
-arr_time_ut numeric,
-route_type numeric ,
-trip_i numeric,
-seq numeric ,
-route_i numeric,
-PRIMARY KEY (from_stop_i, to_stop_i, dep_time_ut, arr_time_ut, trip_i)
-);
+
 create table walk (
 from_stop_i numeric,
 to_stop_i numeric,
@@ -33,17 +23,21 @@ create table combined(
 from_stop_i numeric,
 to_stop_i numeric,
 duration_avg numeric,
-route_i numeric ,
+route_i numeric,
 PRIMARY KEY (from_stop_i, to_stop_i, route_i),
-FOREIGN KEY (route_i) references routes(route_i)
+FOREIGN KEY (route_i) references routes(route_i),
+FOREIGN KEY (from_stop_i) references nodes(stop_i),
+FOREIGN KEY (to_stop_i) references  nodes(stop_i)
 );
-
-create table combxwalk(
+create table temporal_day(
 from_stop_i numeric,
 to_stop_i numeric,
-duration_avg numeric,
-route_i text,
-
-PRIMARY KEY  (from_stop_i, to_stop_i, route_i)
-)
-"""
+dep_time_ut numeric,
+arr_time_ut numeric,
+route_type numeric ,
+trip_i numeric,
+seq numeric ,
+route_i numeric,
+PRIMARY KEY (from_stop_i, to_stop_i, dep_time_ut, arr_time_ut, trip_i),
+FOREIGN KEY (from_stop_i, to_stop_i, route_i) references combined(from_stop_i, to_stop_i, route_i)
+);"""

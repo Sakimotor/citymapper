@@ -297,12 +297,8 @@ class MainWindow(QMainWindow):
 
         self.nodes = pd.read_sql("SELECT * FROM \"{}\";".format("nodes"), self.engine)
         self.routes = pd.read_sql("SELECT * FROM \"{}\";".format("routes"), self.engine)
-        super_route_comb = pd.read_sql("SELECT * FROM \"{}\";".format("super_route_comb"), self.engine)
-        super_route_comb = super_route_comb.rename(columns={'route_rps_i': 'route_i'})
-        short_walk = pd.read_sql("SELECT * FROM \"{}\" WHERE d_walk < 300;".format("walk"), self.engine)
-        short_walk = short_walk.rename(columns={'d_walk': 'duration_avg'})
 
-        super_short_comb_walk = pd.concat([short_walk, super_route_comb])
+        super_short_comb_walk = pd.read_sql("SELECT * FROM \"{}\";".format("shortest_route"), self.engine)
         G = nx.from_pandas_edgelist(super_short_comb_walk, source="from_stop_i", target="to_stop_i", edge_attr=True)
         self.shortest = nx.shortest_path(G, source=self.from_stop_i, target=self.to_stop_i, weight="duration_avg")
         self.shortest = [int(i) for i in self.shortest]

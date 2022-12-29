@@ -26,3 +26,8 @@ def str_route_num(route_nom):
     else:
         route = -1
     return route
+
+
+"""A - R - B : A et B peuvent apparaître autant de fois qu'ils veulent dans la relation
+A - R ->B : B apparaît au plus une fois pour chaque A
+A = R - B :  Chaque ligne de A apparaît dans R"""
