@@ -45,7 +45,7 @@ def create_nodes():
 
 
 def create_temporal_day():
-    temporal_day = pd.read_csv(dp + 'network_temporal_day.csv', delimiter=';')
+    temporal_day = pd.read_csv(dp + 'network_temporal_day.csv', delimiter=';').drop(columns=['trip_I', 'seq']).drop_duplicates(keep='first')
     temporal_day.columns = temporal_day.columns.str.lower()
 
     def secs(time_ut):
