@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
         self.webView.clearMap(self.maptype_box.currentIndex())
         self.from_box.clearEditText()
         self.to_box.clearEditText()
+        self.tableWidget.clearContents()
         self.update()
         global number_of_click
         number_of_click = 0
