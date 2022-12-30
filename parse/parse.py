@@ -23,7 +23,7 @@ engine = None
 dp = None
 
 
-# copy dataFrame into a table defined in the schema
+# copy dataFrame into a table defined in the schema.
 def copy_to_db(df, table):
     df.to_sql(table, con=engine, if_exists='append', index=False)
 
