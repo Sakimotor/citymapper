@@ -45,7 +45,8 @@ def create_nodes():
 
 
 def create_temporal_day():
-    temporal_day = pd.read_csv(dp + 'network_temporal_day.csv', delimiter=';').drop(columns=['trip_I', 'seq']).drop_duplicates(keep='first')
+    temporal_day = pd.read_csv(dp + 'network_temporal_day.csv', delimiter=';').drop(
+        columns=['trip_I', 'seq']).drop_duplicates(keep='first')
     temporal_day.columns = temporal_day.columns.str.lower()
 
     def secs(time_ut):
@@ -85,43 +86,30 @@ def create_combined():
     comb = comb.rename(columns={'route_i_counts': 'route_i'})
     copy_to_db(comb, 'combined')
 
-    cursor.execute("""select DISTINCT from_stop_i, to_stop_i, duration_avg, routes.route_i into combinedxroute
-    from combined
-    INNER JOIN routes ON combined.route_i = routes.route_i""")
-    conn.commit()
-
-    cursor.execute("""ALTER TABLE combinedxroute
-    ADD PRIMARY KEY (from_stop_i, to_stop_i, route_i),
-    ADD FOREIGN KEY (route_i) references routes(route_i),
-    ADD FOREIGN KEY (from_stop_i, to_stop_i, route_i) references  combined(from_stop_i, to_stop_i, route_i) """)
-    conn.commit()
-
 
 def create_walk():
     walk = pd.read_csv(dp + 'network_walk.csv', delimiter=';')
     walk.columns = walk.columns.str.lower()
-    # we assumed a person walks at 2.5 m.s-1
-    walk['d_walk'] /= 2.5
+    # we assumed a person walks at 1.5 m.s-1, and we want the duration in minutes
+    walk['d_walk'] /= 1.5
     walk['route_i'] = 'w'
     walk = walk.drop(columns=['d'])
+    walk = walk.rename(columns={'d_walk': 'duration_avg'})
     copy_to_db(walk, 'walk')
 
     cursor.execute("""SELECT * into shortest_route
     from walk
-    where d_walk < 300;
     
-    alter table shortest_route
-    rename column d_walk to duration_avg;
+    where duration_avg < 300;
     
     insert into shortest_route
-    select * from combinedxroute;
+    select * from combined;
     """)
     conn.commit()
 
     cursor.execute("""alter table shortest_route
     add primary key(from_stop_i, to_stop_i, route_i)""")
     conn.commit()
-
 
 
 def create_lines():
@@ -176,7 +164,7 @@ def main():
         try:
             cursor.execute('DROP SCHEMA public CASCADE')
             conn.commit()
-        except psycopg2.ProgrammingError as err:
+        except psycopg2.ProgrammingError:
             conn.rollback()
         cursor.execute('CREATE SCHEMA public')
         conn.commit()
@@ -184,7 +172,7 @@ def main():
         conn.commit()
         cursor.execute('GRANT ALL ON SCHEMA public TO public')
         conn.commit()
-    except psycopg2.ProgrammingError as err:
+    except psycopg2.ProgrammingError:
         conn.rollback()
         cursor.execute('DROP owned by l3info_32')
         conn.commit()
@@ -193,7 +181,7 @@ def main():
         try:
             cursor.execute(i)
             conn.commit()
-        except psycopg2.ProgrammingError as err:
+        except psycopg2.ProgrammingError:
             # print("we caught the exception")
             conn.rollback()
 

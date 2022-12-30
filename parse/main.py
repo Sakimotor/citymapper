@@ -270,6 +270,7 @@ class MainWindow(QMainWindow):
         total_time = current_time - starting_time
         print(
             f"The time taking into account the wait is {int(total_time // 3600)}h {int(total_time % 3600 // 60)}m {int(total_time % 3600 % 60)}s")
+        print(which_routes_taken)
         return shortest_names, which_routes_taken, total_time
 
     def button_Go(self):
@@ -302,6 +303,7 @@ class MainWindow(QMainWindow):
         G = nx.from_pandas_edgelist(super_short_comb_walk, source="from_stop_i", target="to_stop_i", edge_attr=True)
         self.shortest = nx.shortest_path(G, source=self.from_stop_i, target=self.to_stop_i, weight="duration_avg")
         self.shortest = [int(i) for i in self.shortest]
+        print(self.shortest)
         self.shortest_names, self.shortest_routes, self.shortest_time = self.path_processing(G, self.shortest)
         numrows = 2
         numcols = len(self.shortest_routes.index)

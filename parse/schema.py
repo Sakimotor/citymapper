@@ -15,7 +15,7 @@ PRIMARY KEY (route_i)
 create table walk (
 from_stop_i numeric,
 to_stop_i numeric,
-d_walk numeric,
+duration_avg numeric,
 route_i text,
 PRIMARY KEY (from_stop_i, to_stop_i)
 );
